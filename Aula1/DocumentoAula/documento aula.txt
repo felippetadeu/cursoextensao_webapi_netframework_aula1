@@ -1,0 +1,131 @@
+1) Criar um novo projeto -> Aplicativo Web ASP.NET (.NET Framework)
+2) Selecionar Web API -> Sem Autenticação
+3) Adicionar as seguintes referências via NuGet para funcionar a autenticação via token:
+/* Old */
+	Microsoft.Owin 3.0.0 (Instalará Owin 1.0.0)
+	Microsoft.Owin.Cors 3.0.0 (Instalará Microsoft.AspNet.Cors 5.0.0)
+	Microsoft.Owin.Host.SystemWeb 3.0.0
+	Microsoft.Owin.Security 3.0.0
+	Microsoft.Owin.Security.Cookies 2.1.0
+	Microsoft.Owin.Security.Jwt 3.0.0
+	Microsoft.Owin.Security.OAuth 3.0.0
+	--Owin 1.0.0
+	Microsoft.AspNet.Cors 5.2.6
+	Microsoft.AspNet.Identity.Core 2.2.2
+	Microsoft.AspNet.Identity.Owin 2.1.0
+	Microsoft.AspNet.WebApi.Cors 5.2.6
+	Microsoft.Web.Infrastructure 1.0.0
+	Newtonsoft.Json 11.0.1
+	System.IdentityModel.Tokens.Jwt 4.0.0
+	Thinktecture.IdentityModel.Core 1.2.0
+/* ----- */
+/* New */
+Microsoft.AspNet.WebApi.Owin
+Microsoft.Owin.Host.SystemWeb
+Microsoft.Owin.Security.OAuth
+Microsoft.Owin.Cors
+
+4) Adiciona referência Entity Framework via NuGet:
+	EntityFramework
+
+5) Criar uma pasta Db dentro de Models e criar as classes Usuario e Categoria
+6) Criar uma classe dentro de Db que irá herdar de DbContext que irá conter as classes mapeadas.
+using System.Data.Entity;
+
+namespace Aula1.Models.Db
+{
+    public class CursoExtensaoDbContext : DbContext
+    {
+        public CursoExtensaoDbContext() : base("name=CursoDBContext")
+        {
+
+        }
+
+        public virtual DbSet<Usuario> Usuarios { get; set; }
+        public virtual DbSet<Categoria> Categorias { get; set; }
+    }
+}
+
+7) No arquivo Web.config colocar a string de conexão do CursoDBContext
+*****Verificar modo de autentição para abrir as bases SQL
+<add name="CursoDBContext" connectionString="data source=DESKTOP-VLJU4JE;initial catalog=cursoextensao;integrated security=True;"></add>
+
+8) Antes de criar o controller, deve ser salvo e compilado o projeto
+
+9) Criar o controller de Categoria, selecionando o controller web api com ações do entity framework
+
+10) Criar um arquivo Owin de inicialização
+	public void Configuration(IAppBuilder app)
+        {
+            //configuração webapi
+            var config = new HttpConfiguration();
+
+            //configuração de rotas
+            config.MapHttpAttributeRoutes();
+            config.Routes.MapHttpRoute(
+                    name: "DefualtAPI",
+                    routeTemplate: "api/{controller}/{id}",
+                    defaults: new { id = RouteParameter.Optional }
+                );
+
+            //ativando cors
+            app.UseCors(CorsOptions.AllowAll);
+
+            //usar geração de token
+            AtivarGeracaoTokenAcesso(app);
+
+            //ativando configuração WebApi
+            app.UseWebApi(config);
+        }
+
+
+        private void AtivarGeracaoTokenAcesso(IAppBuilder app)
+        {
+            var opcoes = new OAuthAuthorizationServerOptions()
+            {
+                /* Permite requisição HTTP, caso contrário somente HTTPS */
+                AllowInsecureHttp = true,
+                /* Qual url será executada para a obtenção do token*/
+                TokenEndpointPath = new PathString("/token"),
+                /* Em quanto tempo o token irá expirar*/
+                AccessTokenExpireTimeSpan = TimeSpan.FromHours(1),
+                /* Quem irá prover o token */
+                Provider = new ProviderDeTokensDeAcesso()
+            };
+
+            app.UseOAuthAuthorizationServer(opcoes);
+            app.UseOAuthBearerAuthentication(new OAuthBearerAuthenticationOptions());
+        }
+
+11) Criar uma pasta Provider e criar a classe ProviderDeTokensDeAcesso
+
+    public class ProviderDeTokensDeAcesso : OAuthAuthorizationServerProvider
+    {
+        /// <summary>
+        /// Método responsável por tornar válida a requisição de qualquer client
+        /// </summary>
+        /// <param name="context"></param>
+        /// <returns></returns>
+        public override Task ValidateClientAuthentication(OAuthValidateClientAuthenticationContext context)
+        {
+            context.Validated();
+            return null;
+        }
+
+        public override Task GrantResourceOwnerCredentials(OAuthGrantResourceOwnerCredentialsContext context)
+        {
+            if (UsuarioSeguranca.Login(context.UserName, context.Password))
+            {
+                var identity = new ClaimsIdentity(context.Options.AuthenticationType);
+                identity.AddClaim(new Claim("sub", context.UserName));
+                identity.AddClaim(new Claim("role", "user"));
+                context.Validated(identity);
+                return null;
+            }
+            else
+            {
+                context.SetError("acesso inválido", "As credenciais do usuário não conferem....");
+                return null;
+            }
+        }
+    }
